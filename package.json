@@ -1,0 +1,97 @@
+{
+  "name": "snapleaf",
+  "version": "0.1.0",
+  "description": "Fast, local-first screenshot capture, annotation, and sharing.",
+  "main": "./out/main/index.js",
+  "author": {
+    "name": "Rajat Malik",
+    "url": "https://rajatmalik.dev/"
+  },
+  "homepage": "https://rajatmalik.dev/",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run",
+    "icon": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-icon.ps1",
+    "dist": "npm run build && electron-builder --win nsis",
+    "test:e2e": "node scripts/e2e.mjs",
+    "test:e2e:packaged": "node scripts/e2e-packaged.mjs"
+  },
+  "dependencies": {
+    "lucide-react": "^1.78.0",
+    "qrcode": "^1.5.4",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "@types/qrcode": "^1.5.5",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "^6.0.0",
+    "playwright-core": "^1.65.1",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
+  },
+  "build": {
+    "appId": "tools.snapleaf.app",
+    "productName": "Snapleaf",
+    "directories": {
+      "buildResources": "resources",
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*",
+      "resources/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "resources/icon.ico",
+      "artifactName": "Snapleaf-${version}-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Snapleaf",
+      "runAfterFinish": true
+    },
+    "extraResources": [
+      {
+        "from": "resources/icon.png",
+        "to": "icon.png"
+      }
+    ]
+  },
+  "engines": {
+    "node": ">=22.23.4"
+  },
+  "keywords": [
+    "screenshot",
+    "snipping",
+    "annotation",
+    "electron",
+    "windows",
+    "local-first",
+    "sharing"
+  ]
+}
