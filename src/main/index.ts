@@ -1,4 +1,4 @@
-import { app, Menu, nativeTheme, Notification, session } from 'electron';
+import { app, Menu, nativeTheme, Notification, screen, session } from 'electron';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { HotkeyStatus } from '../shared/types';
@@ -37,6 +37,10 @@ if (!gotLock) {
   const iconPath = app.isPackaged
     ? join(process.resourcesPath, 'icon.png')
     : join(app.getAppPath(), 'resources', 'icon.png');
+  // Windows taskbar and title bars read a multi-size .ico far more sharply than a PNG.
+  const windowIconPath = app.isPackaged
+    ? join(process.resourcesPath, 'icon.ico')
+    : join(app.getAppPath(), 'resources', 'icon.ico');
 
   function broadcast(channel: string, payload: unknown): void {
     for (const win of windows?.allWindows() ?? []) {
@@ -107,7 +111,7 @@ if (!gotLock) {
     uploadServer = server;
     await server.start();
 
-    const windowManager = new WindowManager(iconPath);
+    const windowManager = new WindowManager(windowIconPath);
     windows = windowManager;
     libraryStore.on('changed', () => broadcast(IPC.libraryChanged, {}));
     const captureService = new CaptureService(windowManager, settingsStore, libraryStore, server, iconPath);
@@ -222,6 +226,14 @@ if (!gotLock) {
     } else if (!shouldStayHidden) {
       windowManager.showHome();
     }
+
+    // Created after the visible windows so startup order is unchanged. Keeps one
+    // hidden overlay per display ready so a capture shows instantly.
+    captureService.prewarmOverlays();
+    const resyncOverlays = () => captureService.prewarmOverlays();
+    screen.on('display-added', resyncOverlays);
+    screen.on('display-removed', resyncOverlays);
+    screen.on('display-metrics-changed', resyncOverlays);
 
     log.info('Snapleaf started', {
       version: app.getVersion(),

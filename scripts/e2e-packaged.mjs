@@ -89,7 +89,11 @@ try {
   const recorded = await captureRow.locator('kbd').textContent();
   console.log('PACKAGED_HOTKEY_RECORDED', JSON.stringify(recorded));
   if (!recorded?.includes('PrtSc')) throw new Error(`Packaged PrintScreen recording failed: ${recorded}`);
-  if (app.windows().some((page) => page.url().includes('overlay'))) {
+  // Overlay windows are pre-created hidden, so only a visible one means a capture started.
+  const captureVisible = await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows().some((win) => win.isVisible() && win.webContents.getURL().includes('overlay'))
+  );
+  if (captureVisible) {
     throw new Error('Packaged PrintScreen recording started a capture');
   }
   await settings.close();

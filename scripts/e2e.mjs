@@ -505,7 +505,11 @@ try {
   const recordedHotkey = await captureHotkeyRow.locator('kbd').textContent();
   console.log('HOTKEY_RECORDED', JSON.stringify(recordedHotkey));
   if (!recordedHotkey?.includes('PrtSc')) throw new Error(`PrintScreen was not recorded: ${recordedHotkey}`);
-  if (app.windows().some((page) => page.url().includes('overlay'))) {
+  // Overlay windows are pre-created hidden, so only a visible one means a capture started.
+  const captureVisible = await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows().some((win) => win.isVisible() && win.webContents.getURL().includes('overlay'))
+  );
+  if (captureVisible) {
     throw new Error('Recording PrintScreen started a capture instead of reaching the recorder');
   }
   await captureHotkeyRow.getByRole('button', { name: 'Change', exact: true }).click();

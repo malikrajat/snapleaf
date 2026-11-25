@@ -223,8 +223,41 @@ function drawCursor(ctx: CanvasRenderingContext2D, x: number, y: number, scale: 
   ctx.restore();
 }
 
+/**
+ * The overlay window is pre-created and reused across captures. The gate waits
+ * for the main process to push a session into it, then mounts a fresh
+ * OverlaySession keyed by the session id so no state leaks between captures.
+ */
 export function OverlayPage() {
   const [init, setInit] = useState<OverlayInit | null>(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    const off = api.capture.onInit((value) => {
+      if (alive) setInit(value);
+    });
+    api.capture
+      .getOverlayInit()
+      .then((value) => {
+        if (alive) setInit((current) => current ?? value);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (alive) setReady(true);
+      });
+    return () => {
+      alive = false;
+      off();
+    };
+  }, []);
+
+  if (!ready || !init) return <div className="overlay-idle" aria-hidden="true" />;
+  return <OverlaySession key={init.sessionId} initial={init} />;
+}
+
+function OverlaySession({ initial }: { initial: OverlayInit }) {
+  const [init, setInit] = useState<OverlayInit | null>(initial);
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [viewport, setViewport] = useState<Viewport>({
@@ -263,8 +296,7 @@ export function OverlayPage() {
 
   useEffect(() => {
     let alive = true;
-    api.capture
-      .getOverlayInit()
+    Promise.resolve(initial)
       .then((value) => {
         if (!alive) return;
         setInit(value);
@@ -373,7 +405,9 @@ export function OverlayPage() {
     if (!image || !init || readySent.current) return;
     draw();
     readySent.current = true;
-    requestAnimationFrame(() => void api.capture.overlayReady());
+    // Do not wait on requestAnimationFrame: the pre-warmed overlay is hidden
+    // until this signal arrives, and Chromium does not run frames for hidden windows.
+    void api.capture.overlayReady();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [image, init, draw]);
 

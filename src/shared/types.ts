@@ -188,7 +188,8 @@ export interface SnapleafApi {
   capture: {
     startRegion(): Promise<void>;
     startFullscreen(action: CaptureAction): Promise<void>;
-    getOverlayInit(): Promise<OverlayInit>;
+    getOverlayInit(): Promise<OverlayInit | null>;
+    onInit(callback: (init: OverlayInit | null) => void): () => void;
     overlayReady(): void;
     confirm(payload: OverlayConfirm): Promise<void>;
     cancel(): Promise<void>;
@@ -264,6 +265,7 @@ export const IPC = {
   captureStartFullscreen: 'capture:start-fullscreen',
   captureOverlayInit: 'capture:overlay-init',
   captureOverlayReady: 'capture:overlay-ready',
+  captureOverlayPush: 'capture:overlay-push',
   captureConfirm: 'capture:confirm',
   captureCancel: 'capture:cancel',
   captureFocus: 'capture:focus',

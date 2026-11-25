@@ -1,7 +1,12 @@
 import { BrowserWindow, shell, screen } from 'electron';
 import { join } from 'node:path';
-import type { DisplayInfo } from '../shared/types';
+import { IPC, type DisplayInfo } from '../shared/types';
 import { log } from './logger';
+
+function overlayKey(display: DisplayInfo): string {
+  const { x, y, width, height } = display.bounds;
+  return `${x},${y},${width},${height},${display.scaleFactor}`;
+}
 
 const PRELOAD = join(__dirname, '../preload/index.js');
 const RENDERER_HTML = join(__dirname, '../renderer/index.html');
@@ -58,6 +63,8 @@ export class WindowManager {
   private upload: BrowserWindow | null = null;
   private editors = new Map<number, BrowserWindow>();
   private overlays = new Map<number, BrowserWindow>();
+  private overlayKeys = new Map<number, string>();
+  private overlayFailure: (() => void) | null = null;
 
   constructor(private readonly icon: string) {}
 
@@ -199,8 +206,33 @@ export class WindowManager {
     return win;
   }
 
-  createOverlay(sessionId: string, display: DisplayInfo): BrowserWindow {
-    const win = this.create(`/overlay?session=${encodeURIComponent(sessionId)}&display=${display.id}`, {
+  /** Called when an overlay fails to load or is closed unexpectedly. */
+  setOverlayFailureHandler(handler: () => void): void {
+    this.overlayFailure = handler;
+  }
+
+  /**
+   * Keep one hidden overlay per display ready so a capture only has to push
+   * its image in and show the window. Windows for displays that disappeared
+   * or changed geometry are destroyed. Do not call while a capture is active.
+   */
+  syncOverlays(displays: DisplayInfo[]): void {
+    const wanted = new Map(displays.map((display) => [display.id, display]));
+    for (const [id, win] of [...this.overlays]) {
+      const display = wanted.get(id);
+      if (!display || this.overlayKeys.get(id) !== overlayKey(display)) {
+        this.overlays.delete(id);
+        this.overlayKeys.delete(id);
+        if (!win.isDestroyed()) win.destroy();
+      }
+    }
+    for (const display of displays) this.createOverlay(display);
+  }
+
+  createOverlay(display: DisplayInfo): BrowserWindow {
+    const existing = this.overlays.get(display.id);
+    if (existing && !existing.isDestroyed()) return existing;
+    const win = this.create(`/overlay?display=${display.id}`, {
       x: display.bounds.x,
       y: display.bounds.y,
       width: display.bounds.width,
@@ -221,19 +253,39 @@ export class WindowManager {
     }, 'overlay', false);
     win.setBounds(display.bounds);
     this.overlays.set(display.id, win);
-    win.on('closed', () => this.overlays.delete(display.id));
+    this.overlayKeys.set(display.id, overlayKey(display));
+    win.webContents.on('did-fail-load', () => this.overlayFailure?.());
+    win.on('closed', () => {
+      if (this.overlays.get(display.id) === win) {
+        this.overlays.delete(display.id);
+        this.overlayKeys.delete(display.id);
+        this.overlayFailure?.();
+      }
+    });
     return win;
   }
 
   getOverlay(displayId: number): BrowserWindow | undefined {
-    return this.overlays.get(displayId);
+    const win = this.overlays.get(displayId);
+    return win && !win.isDestroyed() ? win : undefined;
   }
 
-  closeOverlays(): void {
+  /** Hide every overlay and clear its session; the windows stay warm for next time. */
+  hideOverlays(): void {
+    for (const win of this.overlays.values()) {
+      if (win.isDestroyed()) continue;
+      win.webContents.send(IPC.captureOverlayPush, null);
+      win.hide();
+    }
+  }
+
+  /** Destroy every overlay window so its renderer process and memory are released. */
+  releaseOverlays(): void {
     for (const win of [...this.overlays.values()]) {
-      if (!win.isDestroyed()) win.close();
+      if (!win.isDestroyed()) win.destroy();
     }
     this.overlays.clear();
+    this.overlayKeys.clear();
   }
 
   hideForCapture(): BrowserWindow[] {
