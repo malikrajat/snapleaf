@@ -927,7 +927,7 @@ export function SettingsPage() {
                 </div>
               </div>
               <dl className="about-grid">
-                <div><dt>Version</dt><dd>{info?.version ?? '0.1.0'}</dd></div>
+                <div><dt>Version</dt><dd>{info?.version ?? '0.2.0'}</dd></div>
                 <div><dt>Electron</dt><dd>{info?.electron ?? '—'}</dd></div>
                 <div><dt>Platform</dt><dd>{info?.platform ?? '—'}</dd></div>
                 <div><dt>Sharing</dt><dd>{serverInfo?.running ? `Port ${serverInfo.port}` : 'Off'}</dd></div>

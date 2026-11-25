@@ -8,8 +8,8 @@ intentionally replaced; **Todo** = not implemented.
 
 | Feature | Lightshot | Snapleaf | Notes |
 | --- | --- | --- | --- |
-| Region selection | Done | **Better** | Rectangle, ellipse, or freehand lasso; a labeled shape bar stays visible above the selection so the shape can be changed after drawing; transparent pixels outside non-rectangular shapes; drag, size badge, corner resize handles, magnifier + pixel color, remembered region |
-| Inline markup on selection | Done | **Better** | 20px icon-only square rail/action bar attached flush to the selection, `#1E90FF` active states and branding, solid single-color annotations with no second outline, numbered steps, per-object eraser, color/size panels, undo/redo, resize handles, smart edge flipping |
+| Region selection | Done | **Better** | Rectangle, ellipse, or freehand lasso; a square icon-only shape strip above the selection, built from the same 20px parts as the tool rail and action bar, keeps the shape changeable after drawing; transparent pixels outside non-rectangular shapes; drag, size readout in the hint bar, eight square resize handles (four corners + four edges), drag-to-move hand tool, magnifier + pixel color, remembered region |
+| Inline markup on selection | Done | **Better** | 20px icon-only square rail/action bar beside the selection, `#1E90FF` active states and branding, solid single-color annotations with no second outline, numbered steps, per-object eraser, color/size panels, undo/redo, smart edge flipping; markup tools are opt-in so the default drag moves the selection |
 | Full-screen capture | Done | **Done** | Cursor display or primary/current display |
 | Global PrintScreen | Done | **Better** | Takes the bare PrtSc key from Windows Snipping Tool through the per-user setting, restores it when disabled, and warns when Windows still owns it; Win-key shell shortcuts remain reserved |
 | Multi-monitor | Done | **Partial** | Per-display overlays and DPI-aware crops; one display per selection |
@@ -46,7 +46,7 @@ intentionally replaced; **Todo** = not implemented.
 | Shapes with fill | Not present | **Todo** | Outline only today |
 | Inline vs full editor | Inline toolbar only | **Better** | Both: act inline immediately or press Edit for the full editor |
 | Copy | Done | **Done** | PNG to clipboard (Electron 45 ClipboardItem); inline and editor |
-| Save | Done | **Done** | PNG/JPEG, quality, filename pattern, folder; inline and editor |
+| Save | Done | **Done** | PNG/JPEG, quality, filename pattern, folder; inline and editor, with a stable dialog parent so inline Save writes the file |
 | Print | Done | **Done** | System print dialog from inline or editor |
 | Upload | Done | **Different** | Built-in local server instead of prntscr.com; inline Share |
 | Online editor | Vendor service | **Different** | Local editor; no round trip |
@@ -105,8 +105,8 @@ intentionally replaced; **Todo** = not implemented.
 2. **Both workflows at once**: the familiar inline tool rail/action bar during selection,
    plus a roomy full editor when needed.
 3. Labeled tools and visible keyboard shortcuts instead of tiny unlabeled toolbar glyphs.
-4. Inline color/size popovers, corner resize handles, undo/redo, numbered steps, a
-   per-object eraser, and clear-all markup.
+4. Inline color/size popovers, eight selection resize handles, drag-to-move hand,
+   undo/redo, numbered steps, a per-object eraser, and clear-all markup.
 5. Redo, crop, zoom, clear-all markup, and pixelation as first-class tools.
 6. One share window with page link, direct link, QR, and share targets.
 7. Searchable local gallery with separate Captures and Shared tabs that refresh live.

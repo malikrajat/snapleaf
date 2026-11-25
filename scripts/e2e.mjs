@@ -7,6 +7,8 @@ import fs from 'node:fs';
 const root = path.resolve('.');
 const out = path.join(root, 'analysis');
 fs.mkdirSync(out, { recursive: true });
+const userDataDir = path.join(out, 'e2e-user-data');
+fs.mkdirSync(userDataDir, { recursive: true });
 const errors = [];
 const logs = [];
 let updateFeedServer = null;
@@ -38,6 +40,31 @@ async function markupCount(page) {
   return Number(match[1]);
 }
 
+async function selectionBounds(page) {
+  const rail = await page.locator('.inline-rail').boundingBox();
+  const bar = await page.locator('.inline-actionbar').boundingBox();
+  const shape = await page.locator('.selection-shapebar').boundingBox();
+  if (!rail || !bar || !shape) throw new Error('Selection toolbars are missing');
+  return {
+    left: shape.x,
+    top: rail.y,
+    right: rail.x - 4,
+    bottom: bar.y - 4
+  };
+}
+
+async function canvasCursor(page) {
+  return page.locator('canvas.capture-canvas').evaluate((canvas) => getComputedStyle(canvas).cursor);
+}
+
+async function dragMouse(page, from, to, steps = 8) {
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps });
+  await page.mouse.up();
+  await delay(200);
+}
+
 async function canvasAlphaCheck(page, label) {
   const result = await page.evaluate(() => {
     const canvas = document.querySelector('canvas.editor-canvas');
@@ -57,10 +84,15 @@ async function canvasAlphaCheck(page, label) {
   }
 }
 
+// An IDE or agent shell can export ELECTRON_RUN_AS_NODE, which makes the
+// Electron binary run as plain Node and exit before a debugger port appears.
+const childEnv = { ...process.env, SNAPLEAF_E2E: '1' };
+delete childEnv.ELECTRON_RUN_AS_NODE;
+
 const app = await electron.launch({
-  args: ['.'],
+  args: ['.', `--user-data-dir=${userDataDir}`],
   cwd: root,
-  env: { ...process.env, SNAPLEAF_E2E: '1' }
+  env: childEnv
 });
 app.process().stdout?.on('data', (data) => logs.push(`[main] ${data.toString().trim()}`));
 app.process().stderr?.on('data', (data) => logs.push(`[main:err] ${data.toString().trim()}`));
@@ -109,11 +141,48 @@ try {
   const shapeBar = overlay.locator('.selection-shapebar');
   console.log('SHAPE_BAR_AFTER_SELECT', await shapeBar.isVisible());
   if (!(await shapeBar.isVisible())) throw new Error('Selection shape bar disappeared after drawing');
+
+  // The shape switcher must be the same square, icon-only, 20px strip as the
+  // tool rail and action bar, and it must carry no text labels.
+  const shapeMetrics = await overlay.evaluate(() => {
+    const box = (selector) => {
+      const element = document.querySelector(selector);
+      if (!element) return null;
+      const rect = element.getBoundingClientRect();
+      return { w: Math.round(rect.width), h: Math.round(rect.height) };
+    };
+    const bar = document.querySelector('.selection-shapebar');
+    return {
+      bar: box('.selection-shapebar'),
+      button: box('.selection-shape-button'),
+      tool: box('.inline-tool'),
+      action: box('.inline-action'),
+      text: (bar?.textContent ?? '').trim(),
+      labels: [...document.querySelectorAll('.selection-shape-button')].length
+    };
+  });
+  console.log('SHAPE_BAR_METRICS', JSON.stringify(shapeMetrics));
+  if (!shapeMetrics.bar || !shapeMetrics.button) throw new Error('Shape switcher is missing');
+  if (shapeMetrics.labels !== 3) throw new Error(`Expected 3 shape buttons, found ${shapeMetrics.labels}`);
+  if (shapeMetrics.text !== '') throw new Error(`Shape switcher still shows text: ${JSON.stringify(shapeMetrics.text)}`);
+  if (shapeMetrics.button.h !== 20 || shapeMetrics.button.w !== 20) {
+    throw new Error(`Shape buttons are ${shapeMetrics.button.w}x${shapeMetrics.button.h}, expected 20x20`);
+  }
+  if (shapeMetrics.bar.h !== 20) throw new Error(`Shape switcher is ${shapeMetrics.bar.h}px tall, expected 20px`);
+  if (shapeMetrics.tool && shapeMetrics.button.h !== shapeMetrics.tool.h) {
+    throw new Error('Shape buttons are taller than the tool rail buttons');
+  }
+  if (shapeMetrics.action && shapeMetrics.button.h !== shapeMetrics.action.h) {
+    throw new Error('Shape buttons are taller than the action bar buttons');
+  }
+  const activeShapeName = () =>
+    overlay.locator('.selection-shape-button[aria-pressed="true"]').getAttribute('aria-label');
+
   await overlay.getByRole('button', { name: 'Ellipse selection', exact: true }).click();
   await delay(250);
-  const ellipseShape = await overlay.locator('.selection-shape-button.is-active').textContent();
+  const ellipseShape = await activeShapeName();
   console.log('SHAPE_BAR_ELLIPSE', JSON.stringify(ellipseShape));
-  if (!ellipseShape?.includes('Circle')) throw new Error('Circle selection did not activate');
+  if (ellipseShape !== 'Ellipse selection') throw new Error('Circle selection did not activate');
   await overlay.getByRole('button', { name: 'Rectangle selection', exact: true }).click();
   await delay(250);
   await overlay.getByRole('button', { name: 'Freehand lasso selection', exact: true }).click();
@@ -123,9 +192,9 @@ try {
   if (!pendingHint?.includes('freehand')) throw new Error('Freehand selection did not explain the next drag');
   await overlay.keyboard.press('Escape');
   await delay(250);
-  const restoredShape = await overlay.locator('.selection-shape-button.is-active').textContent();
+  const restoredShape = await activeShapeName();
   console.log('SHAPE_BAR_RESTORED', JSON.stringify(restoredShape));
-  if (!restoredShape?.includes('Rect')) throw new Error('Escape did not keep the rectangle selection');
+  if (restoredShape !== 'Rectangle selection') throw new Error('Escape did not keep the rectangle selection');
   await overlay.screenshot({ path: path.join(out, 'e2e-overlay-shapebar.png') });
 
   // A single click with Pen used to crash on a one-point path. Exercise both
@@ -555,6 +624,116 @@ try {
     // The overlay is expected to close as soon as Escape is handled.
   }
   await delay(300);
+
+  // Dedicated session for selection editing: every handle, drag-to-move, and
+  // inline Save. Keeping this separate avoids disturbing the markup flows.
+  await homeAgain.evaluate(async () => {
+    const settings = await window.snapleaf.settings.get();
+    await window.snapleaf.settings.update({ ...settings, capture: { ...settings.capture, lastRegion: null } });
+  });
+  await homeAgain.click('button:has-text("Capture a region")');
+  const adjustOverlay = await waitForWindow(app, 'overlay');
+  watch(adjustOverlay, 'adjust-overlay');
+  await adjustOverlay.waitForSelector('canvas.capture-canvas', { timeout: 15000 });
+  await delay(500);
+  await dragMouse(adjustOverlay, { x: 320, y: 300 }, { x: 1000, y: 660 }, 10);
+
+  let bounds = await selectionBounds(adjustOverlay);
+  const midX = (bounds.left + bounds.right) / 2;
+  const midY = (bounds.top + bounds.bottom) / 2;
+  const handleChecks = [
+    { id: 'nw', x: bounds.left, y: bounds.top, cursor: 'nwse-resize' },
+    { id: 'ne', x: bounds.right, y: bounds.top, cursor: 'nesw-resize' },
+    { id: 'sw', x: bounds.left, y: bounds.bottom, cursor: 'nesw-resize' },
+    { id: 'se', x: bounds.right, y: bounds.bottom, cursor: 'nwse-resize' },
+    { id: 'n', x: midX, y: bounds.top, cursor: 'ns-resize' },
+    { id: 'e', x: bounds.right, y: midY, cursor: 'ew-resize' },
+    { id: 's', x: midX, y: bounds.bottom, cursor: 'ns-resize' },
+    { id: 'w', x: bounds.left, y: midY, cursor: 'ew-resize' }
+  ];
+  for (const handle of handleChecks) {
+    await adjustOverlay.mouse.move(handle.x, handle.y);
+    await delay(60);
+    const actual = await canvasCursor(adjustOverlay);
+    console.log(`HANDLE_CURSOR_${handle.id.toUpperCase()}`, actual);
+    if (actual !== handle.cursor) throw new Error(`${handle.id} handle cursor was ${actual}, expected ${handle.cursor}`);
+  }
+
+  const beforeMove = bounds;
+  await dragMouse(
+    adjustOverlay,
+    { x: (beforeMove.left + beforeMove.right) / 2, y: (beforeMove.top + beforeMove.bottom) / 2 },
+    { x: (beforeMove.left + beforeMove.right) / 2 + 60, y: (beforeMove.top + beforeMove.bottom) / 2 + 40 },
+    10
+  );
+  bounds = await selectionBounds(adjustOverlay);
+  console.log('SELECTION_MOVE', JSON.stringify({ dx: bounds.left - beforeMove.left, dy: bounds.top - beforeMove.top }));
+  if (Math.abs(bounds.left - beforeMove.left - 60) > 2 || Math.abs(bounds.top - beforeMove.top - 40) > 2) {
+    throw new Error('Dragging inside the selection did not move it');
+  }
+
+  let before = bounds;
+  await dragMouse(adjustOverlay, { x: before.right, y: (before.top + before.bottom) / 2 }, { x: before.right + 70, y: (before.top + before.bottom) / 2 });
+  bounds = await selectionBounds(adjustOverlay);
+  console.log('RESIZE_E', JSON.stringify({ before: before.right, after: bounds.right }));
+  if (bounds.right - before.right < 60) throw new Error('East edge handle did not widen the selection');
+
+  before = bounds;
+  await dragMouse(adjustOverlay, { x: before.left, y: (before.top + before.bottom) / 2 }, { x: before.left + 50, y: (before.top + before.bottom) / 2 });
+  bounds = await selectionBounds(adjustOverlay);
+  console.log('RESIZE_W', JSON.stringify({ before: before.left, after: bounds.left }));
+  if (bounds.left - before.left < 40) throw new Error('West edge handle did not narrow the selection');
+
+  before = bounds;
+  await dragMouse(adjustOverlay, { x: (before.left + before.right) / 2, y: before.bottom }, { x: (before.left + before.right) / 2, y: before.bottom + 45 });
+  bounds = await selectionBounds(adjustOverlay);
+  console.log('RESIZE_S', JSON.stringify({ before: before.bottom, after: bounds.bottom }));
+  if (bounds.bottom - before.bottom < 35) throw new Error('South edge handle did not increase the height');
+
+  before = bounds;
+  await dragMouse(adjustOverlay, { x: (before.left + before.right) / 2, y: before.top }, { x: (before.left + before.right) / 2, y: before.top + 35 });
+  bounds = await selectionBounds(adjustOverlay);
+  console.log('RESIZE_N', JSON.stringify({ before: before.top, after: bounds.top }));
+  if (bounds.top - before.top < 25) throw new Error('North edge handle did not reduce the height');
+
+  before = bounds;
+  await dragMouse(adjustOverlay, { x: before.right, y: before.bottom }, { x: before.right + 40, y: before.bottom + 30 });
+  bounds = await selectionBounds(adjustOverlay);
+  console.log('RESIZE_SE', JSON.stringify({ right: [before.right, bounds.right], bottom: [before.bottom, bounds.bottom] }));
+  if (bounds.right - before.right < 30 || bounds.bottom - before.bottom < 20) {
+    throw new Error('South-east corner handle did not resize both dimensions');
+  }
+
+  before = bounds;
+  await dragMouse(adjustOverlay, { x: before.left, y: before.top }, { x: before.left + 30, y: before.top + 25 });
+  bounds = await selectionBounds(adjustOverlay);
+  console.log('RESIZE_NW', JSON.stringify({ left: [before.left, bounds.left], top: [before.top, bounds.top] }));
+  if (bounds.left - before.left < 20 || bounds.top - before.top < 15) {
+    throw new Error('North-west corner handle did not resize both dimensions');
+  }
+  await adjustOverlay.screenshot({ path: path.join(out, 'e2e-overlay-resize-move.png') });
+
+  const inlineSavePath = path.join(out, 'e2e-inline-save.png');
+  fs.rmSync(inlineSavePath, { force: true });
+  await app.evaluate(({ dialog }, target) => {
+    globalThis.__inlineSaveDialogHadParent = false;
+    dialog.showSaveDialog = async (...args) => {
+      globalThis.__inlineSaveDialogHadParent = Boolean(args[0] && args[0].webContents);
+      return { canceled: false, filePath: target };
+    };
+  }, inlineSavePath);
+  await adjustOverlay.getByRole('button', { name: 'Save', exact: true }).click();
+  await delay(1500);
+  const inlineSaved = fs.existsSync(inlineSavePath);
+  console.log('INLINE_SAVE', JSON.stringify({
+    saved: inlineSaved,
+    bytes: inlineSaved ? fs.statSync(inlineSavePath).size : 0,
+    dialogParent: await app.evaluate(() => globalThis.__inlineSaveDialogHadParent === true)
+  }));
+  if (!inlineSaved) throw new Error('Inline Save did not write the screenshot');
+  if (!(await app.evaluate(() => globalThis.__inlineSaveDialogHadParent === true))) {
+    throw new Error('Inline Save did not pass a live parent window to the dialog');
+  }
 
   await homeAgain.evaluate(async () => {
     const settings = await window.snapleaf.settings.get();

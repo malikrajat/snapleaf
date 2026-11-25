@@ -52,6 +52,12 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function windowFromSender(senderId: number): BrowserWindow | null {
+  const contents = electronWebContents.fromId(senderId);
+  const win = contents ? BrowserWindow.fromWebContents(contents) : null;
+  return win && !win.isDestroyed() ? win : null;
+}
+
 function toDisplayInfo(display: Electron.Display, index: number): DisplayInfo {
   return {
     id: display.id,
@@ -90,9 +96,8 @@ export class CaptureService {
   }
 
   focusOverlay(senderId: number): void {
-    const contents = electronWebContents.fromId(senderId);
-    const win = contents ? BrowserWindow.fromWebContents(contents) : null;
-    if (win && !win.isDestroyed()) {
+    const win = windowFromSender(senderId);
+    if (win) {
       win.focus();
       win.webContents.focus();
     }
@@ -226,8 +231,14 @@ export class CaptureService {
     if (!init || init.display.id !== payload.displayId) throw new Error('Capture window mismatch');
     const display = session.displays.get(payload.displayId);
     if (!display) throw new Error('Unknown display');
-    this.finishSession();
-    await this.processCapture(payload.dataUrl, display, payload.action, payload.selection, 'region');
+    const dialogParent = windowFromSender(senderId);
+    try {
+      // Keep the overlay alive until the action finishes. In particular, the
+      // Save dialog needs a stable parent window while it writes the file.
+      await this.processCapture(payload.dataUrl, display, payload.action, payload.selection, 'region', dialogParent);
+    } finally {
+      this.finishSession();
+    }
   }
 
   cancel(senderId?: number): void {
@@ -305,7 +316,8 @@ export class CaptureService {
     display: DisplayInfo,
     action: CaptureAction,
     selection: SelectionRect,
-    source: 'region' | 'fullscreen'
+    source: 'region' | 'fullscreen',
+    dialogParent?: BrowserWindow | null
   ): Promise<void> {
     try {
       const current = this.settings.get();
@@ -336,7 +348,7 @@ export class CaptureService {
         return;
       }
       if (action === 'save') {
-        const result = await this.saveDataUrl(dataUrl, current.save.format, current.save.jpegQuality);
+        const result = await this.saveDataUrl(dataUrl, current.save.format, current.save.jpegQuality, undefined, dialogParent);
         if (!result.canceled && result.path) {
           this.notify('Screenshot saved', result.path, () => shell.showItemInFolder(result.path!));
           if (current.save.openFolderAfterSave) shell.showItemInFolder(result.path);
@@ -373,7 +385,8 @@ export class CaptureService {
     dataUrl: string,
     format: 'png' | 'jpeg',
     quality: number,
-    suggestedName?: string
+    suggestedName?: string,
+    parent?: BrowserWindow | null
   ): Promise<{ canceled: boolean; path?: string }> {
     const settings = this.settings.get();
     const { buffer } = parseDataUrl(dataUrl);
@@ -395,7 +408,8 @@ export class CaptureService {
       candidate = join(directory, `${base} (${counter}).${extension}`);
       counter += 1;
     }
-    const parent = BrowserWindow.getFocusedWindow();
+    const dialogOwner =
+      parent && !parent.isDestroyed() ? parent : BrowserWindow.getFocusedWindow();
     const options = {
       title: 'Save screenshot',
       defaultPath: candidate,
@@ -404,7 +418,9 @@ export class CaptureService {
           ? [{ name: 'JPEG image', extensions: ['jpg', 'jpeg'] }]
           : [{ name: 'PNG image', extensions: ['png'] }]
     };
-    const result = parent ? await dialog.showSaveDialog(parent, options) : await dialog.showSaveDialog(options);
+    const result = dialogOwner
+      ? await dialog.showSaveDialog(dialogOwner, options)
+      : await dialog.showSaveDialog(options);
     if (result.canceled || !result.filePath) return { canceled: true };
     writeFileSync(result.filePath, payload);
     log.info('Screenshot saved', { path: result.filePath, bytes: payload.byteLength });

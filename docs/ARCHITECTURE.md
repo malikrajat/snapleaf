@@ -24,13 +24,15 @@ print / save / clipboard
    A labeled **Select** bar switches the selection between rectangle, ellipse, and freehand
    lasso (`R`/`O`/`L`). It stays attached above the finished selection: rectangle and ellipse
    reshape the current box in place, while freehand starts a fresh lasso redraw.
-4. After selection, a **thin icon-only inline editor** appears: a square tool rail attached
-   flush to the selection edge, color/size popovers, undo/redo, corner resize handles, and
-   a compact action bar attached to the selection. Both panes flip to the opposite side or
-   above/below when the selection nears a screen edge. Annotations are stored in display CSS
-   coordinates and clipped to the selection. They render as solid single-color strokes with
-   no secondary outline. Numbered steps are ordinary annotations with a stable sequence
-   number; the eraser removes only annotations whose geometry is hit.
+4. After selection, a **thin icon-only inline editor** appears: a square tool rail beside
+   the selection edge, color/size popovers, undo/redo, eight resize handles (four corners
+   and four edge midpoints), and a compact action bar attached to the selection. The
+   default Move tool grabs the selection for dragging; markup tools are opt-in from the
+   rail. Both panes flip to the opposite side or above/below when the selection nears a
+   screen edge. Annotations are stored in display CSS coordinates and clipped to the
+   selection. They render as solid single-color strokes with no secondary outline.
+   Numbered steps are ordinary annotations with a stable sequence number; the eraser
+   removes only annotations whose geometry is hit.
 5. Inline Edit, Copy, Save, Share, or Print renders the annotated crop at native
    resolution and sends one PNG data URL to main. Ellipse/lasso selections clip the bitmap,
    leaving transparent pixels outside the shape. Redraw starts a fresh selection.

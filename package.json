@@ -1,6 +1,6 @@
 {
   "name": "snapleaf",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "Fast, local-first screenshot capture, annotation, and sharing.",
   "main": "./out/main/index.js",
   "author": {
@@ -15,6 +15,8 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "read:exe": "node scripts/read-exe.mjs",
+    "read:exe:deep": "node scripts/read-exe.mjs --deep",
     "test": "vitest run",
     "icon": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-icon.ps1",
     "dist": "npm run build && electron-builder --win nsis",

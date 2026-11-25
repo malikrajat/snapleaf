@@ -58,15 +58,19 @@ unconfigured Hopper/IDA/JADX/Kuna.
 
 ## Commands used
 
-Provider-neutral facts:
+The repository exposes both inspections as npm commands. They resolve the global REA CLI,
+set the bundled Ghidra/JDK paths, and never execute the target binary:
 
 ```powershell
-rea inspect-artifact "C:\Program Files (x86)\Skillbrains\lightshot\5.5.0.7\Lightshot.exe" --json
+npm run read:exe -- "C:\Program Files (x86)\Skillbrains\lightshot\5.5.0.7\Lightshot.exe"
+npm run read:exe:deep -- "C:\Program Files (x86)\Skillbrains\lightshot\5.5.0.7\Lightshot.dll"
 ```
 
-Native overview:
+Equivalent direct REA commands:
 
 ```powershell
+rea inspect-artifact "C:\Program Files (x86)\Skillbrains\lightshot\5.5.0.7\Lightshot.exe" `
+  --format json
 rea inspect "C:\Program Files (x86)\Skillbrains\lightshot\5.5.0.7\Lightshot.dll" `
   --provider ghidra --format json
 ```

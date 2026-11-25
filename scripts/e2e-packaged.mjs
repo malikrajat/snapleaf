@@ -4,6 +4,8 @@ import path from 'node:path';
 import fs from 'node:fs';
 
 const root = path.resolve('.');
+const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+const expectedVersion = packageJson.version;
 const out = path.join(root, 'analysis');
 const testAppData = path.join(out, 'test-appdata');
 const executablePath = path.join(root, 'dist', 'win-unpacked', 'Snapleaf.exe');
@@ -12,10 +14,17 @@ fs.mkdirSync(out, { recursive: true });
 if (!fs.existsSync(executablePath)) throw new Error(`Missing packaged executable: ${executablePath}`);
 
 const errors = [];
+// An IDE or agent shell can export ELECTRON_RUN_AS_NODE, which makes the
+// Electron binary run as plain Node and exit before a debugger port appears.
+// A private user-data directory keeps the run independent of an installed
+// copy of Snapleaf that may already be running and holding the single
+// instance lock.
+const childEnv = { ...process.env, APPDATA: testAppData, SNAPLEAF_E2E: '1' };
+delete childEnv.ELECTRON_RUN_AS_NODE;
 const app = await electron.launch({
   executablePath,
-  args: [],
-  env: { ...process.env, APPDATA: testAppData, SNAPLEAF_E2E: '1' }
+  args: [`--user-data-dir=${path.join(testAppData, 'user-data')}`],
+  env: childEnv
 });
 const watch = (page, label) => {
   page.on('pageerror', (error) => errors.push(`[${label}] ${error.stack || error.message}`));
@@ -41,8 +50,8 @@ try {
   console.log('PACKAGED_HOME_OK', await home.title());
   const updateStatus = await home.evaluate(async () => window.snapleaf.updates.status());
   console.log('PACKAGED_UPDATE_STATUS', JSON.stringify(updateStatus));
-  if (updateStatus.currentVersion !== '0.1.0') {
-    throw new Error(`Packaged update API returned ${updateStatus.currentVersion}`);
+  if (updateStatus.currentVersion !== expectedVersion) {
+    throw new Error(`Packaged update API returned ${updateStatus.currentVersion}, expected ${expectedVersion}`);
   }
 
   await home.evaluate(() => window.snapleaf.app.openSettings());

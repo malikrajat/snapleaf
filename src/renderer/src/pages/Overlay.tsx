@@ -6,6 +6,7 @@ import {
   Copy,
   Eraser,
   ExternalLink,
+  Hand,
   Highlighter,
   Lasso,
   LayoutGrid,
@@ -49,15 +50,15 @@ interface Viewport {
 }
 
 type Point = { x: number; y: number };
-type InlineTool = 'pen' | 'line' | 'arrow' | 'rect' | 'ellipse' | 'marker' | 'text' | 'step' | 'blur' | 'eraser';
+type InlineTool = 'move' | 'pen' | 'line' | 'arrow' | 'rect' | 'ellipse' | 'marker' | 'text' | 'step' | 'blur' | 'eraser';
 type SelectionShape = 'rect' | 'ellipse' | 'lasso';
-type Handle = 'nw' | 'ne' | 'sw' | 'se';
+type Handle = 'nw' | 'ne' | 'sw' | 'se' | 'n' | 'e' | 's' | 'w';
 type Panel = 'color' | 'size' | null;
 
-const SELECTION_MODES: Array<{ id: SelectionShape; label: string; short: string; icon: typeof Square }> = [
-  { id: 'rect', label: 'Rectangle selection', short: 'Rectangle', icon: Square },
-  { id: 'ellipse', label: 'Ellipse selection', short: 'Circle', icon: Circle },
-  { id: 'lasso', label: 'Freehand lasso selection', short: 'Freehand', icon: Lasso }
+const SELECTION_MODES: Array<{ id: SelectionShape; label: string; icon: typeof Square }> = [
+  { id: 'rect', label: 'Rectangle selection', icon: Square },
+  { id: 'ellipse', label: 'Ellipse selection', icon: Circle },
+  { id: 'lasso', label: 'Freehand lasso selection', icon: Lasso }
 ];
 
 function pointsBBox(points: Point[]): SelectionRect {
@@ -107,7 +108,13 @@ interface ResizeState {
   initial: SelectionRect;
 }
 
+interface MoveDragState {
+  start: Point;
+  initial: SelectionRect;
+}
+
 const INLINE_TOOLS: Array<{ id: InlineTool; label: string; icon: typeof PenLine; shortcut: string }> = [
+  { id: 'move', label: 'Move', icon: Hand, shortcut: 'H' },
   { id: 'pen', label: 'Pen', icon: PenLine, shortcut: 'P' },
   { id: 'line', label: 'Line', icon: Minus, shortcut: 'L' },
   { id: 'arrow', label: 'Arrow', icon: ArrowUpRight, shortcut: 'A' },
@@ -128,17 +135,6 @@ function relativeRect(start: Point, end: Point, viewport: Viewport): SelectionRe
   return { x, y, width: right - x, height: bottom - y };
 }
 
-function clampRect(rect: SelectionRect, viewport: Viewport): SelectionRect {
-  const x = clamp(rect.x, 0, Math.max(0, viewport.width - 8));
-  const y = clamp(rect.y, 0, Math.max(0, viewport.height - 8));
-  return {
-    x,
-    y,
-    width: clamp(rect.width, 1, viewport.width - x),
-    height: clamp(rect.height, 1, viewport.height - y)
-  };
-}
-
 function clampToRect(point: Point, rect: SelectionRect): Point {
   return {
     x: clamp(point.x, rect.x, rect.x + rect.width),
@@ -150,17 +146,56 @@ function pointInRect(point: Point, rect: SelectionRect): boolean {
   return point.x >= rect.x && point.x <= rect.x + rect.width && point.y >= rect.y && point.y <= rect.y + rect.height;
 }
 
-function handleAt(point: Point, rect: SelectionRect, radius = 13): Handle | null {
-  const handles: Array<{ id: Handle; point: Point }> = [
-    { id: 'nw', point: { x: rect.x, y: rect.y } },
-    { id: 'ne', point: { x: rect.x + rect.width, y: rect.y } },
-    { id: 'sw', point: { x: rect.x, y: rect.y + rect.height } },
-    { id: 'se', point: { x: rect.x + rect.width, y: rect.y + rect.height } }
+function handlePoints(rect: SelectionRect): Array<{ id: Handle; point: Point }> {
+  const left = rect.x;
+  const top = rect.y;
+  const right = rect.x + rect.width;
+  const bottom = rect.y + rect.height;
+  const middleX = left + rect.width / 2;
+  const middleY = top + rect.height / 2;
+  return [
+    { id: 'nw', point: { x: left, y: top } },
+    { id: 'ne', point: { x: right, y: top } },
+    { id: 'sw', point: { x: left, y: bottom } },
+    { id: 'se', point: { x: right, y: bottom } },
+    { id: 'n', point: { x: middleX, y: top } },
+    { id: 'e', point: { x: right, y: middleY } },
+    { id: 's', point: { x: middleX, y: bottom } },
+    { id: 'w', point: { x: left, y: middleY } }
   ];
-  for (const handle of handles) {
+}
+
+function handleAt(point: Point, rect: SelectionRect, radius = 13): Handle | null {
+  for (const handle of handlePoints(rect)) {
     if (Math.hypot(point.x - handle.point.x, point.y - handle.point.y) <= radius) return handle.id;
   }
   return null;
+}
+
+function cursorForHandle(handle: Handle): string {
+  if (handle === 'nw' || handle === 'se') return 'nwse-resize';
+  if (handle === 'ne' || handle === 'sw') return 'nesw-resize';
+  if (handle === 'n' || handle === 's') return 'ns-resize';
+  return 'ew-resize';
+}
+
+function resizeSelection(handle: Handle, initial: SelectionRect, target: Point, viewport: Viewport): SelectionRect {
+  const min = 16;
+  let left = initial.x;
+  let top = initial.y;
+  let right = initial.x + initial.width;
+  let bottom = initial.y + initial.height;
+
+  if (handle.includes('w')) left = clamp(target.x, 0, Math.max(0, right - min));
+  if (handle.includes('e')) right = clamp(target.x, Math.min(left + min, viewport.width), viewport.width);
+  if (handle.includes('n')) top = clamp(target.y, 0, Math.max(0, bottom - min));
+  if (handle.includes('s')) bottom = clamp(target.y, Math.min(top + min, viewport.height), viewport.height);
+
+  left = clamp(left, 0, Math.max(0, viewport.width - min));
+  top = clamp(top, 0, Math.max(0, viewport.height - min));
+  right = clamp(right, left + min, viewport.width);
+  bottom = clamp(bottom, top + min, viewport.height);
+  return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
 function drawCursor(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number): void {
@@ -206,10 +241,11 @@ export function OverlayPage() {
   const [lassoDrawing, setLassoDrawing] = useState(false);
   const [selectionDrag, setSelectionDrag] = useState<{ start: Point } | null>(null);
   const [resize, setResize] = useState<ResizeState | null>(null);
+  const [moveDrag, setMoveDrag] = useState<MoveDragState | null>(null);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [past, setPast] = useState<Annotation[][]>([]);
   const [future, setFuture] = useState<Annotation[][]>([]);
-  const [tool, setTool] = useState<InlineTool>('pen');
+  const [tool, setTool] = useState<InlineTool>('move');
   const [color, setColor] = useState('#ff3b30');
   const [stroke, setStroke] = useState(4);
   const [fontSize, setFontSize] = useState(24);
@@ -235,7 +271,9 @@ export function OverlayPage() {
         const editor = value.settings.editor;
         setColor(editor.defaultColor);
         setStroke(editor.defaultWidth);
-        setTool((editor.defaultTool === 'crop' ? 'pen' : editor.defaultTool) as InlineTool);
+        // The inline overlay starts with the hand so a new selection can be
+        // repositioned immediately. Markup tools are opt-in from the rail.
+        setTool('move');
         const img = new Image();
         img.onload = () => {
           if (!alive) return;
@@ -314,17 +352,14 @@ export function OverlayPage() {
         ctx.restore();
       }
       if (!lassoDrawing && selectionShape !== 'lasso') {
-        const handle = 6;
-        for (const [hx, hy] of [
-          [selection.x, selection.y],
-          [selection.x + selection.width, selection.y],
-          [selection.x, selection.y + selection.height],
-          [selection.x + selection.width, selection.y + selection.height]
-        ]) {
-          ctx.fillStyle = 'rgba(0,0,0,.7)';
-          ctx.fillRect(hx - 4, hy - 4, 8, 8);
+        // Four corner squares plus four edge-wall squares. The dark plate keeps
+        // every square readable on both light and dark screenshots.
+        const handle = 8;
+        for (const { point: handlePoint } of handlePoints(selection)) {
+          ctx.fillStyle = 'rgba(0,0,0,.75)';
+          ctx.fillRect(handlePoint.x - handle / 2 - 2, handlePoint.y - handle / 2 - 2, handle + 4, handle + 4);
           ctx.fillStyle = '#ffffff';
-          ctx.fillRect(hx - handle / 2, hy - handle / 2, handle, handle);
+          ctx.fillRect(handlePoint.x - handle / 2, handlePoint.y - handle / 2, handle, handle);
         }
       }
     }
@@ -364,10 +399,11 @@ export function OverlayPage() {
     if (tool === 'eraser') return pointInRect(cursor, selection) ? 'cell' : 'default';
     if (selectionShape === 'lasso') return pointInRect(cursor, selection) ? 'crosshair' : 'default';
     const handle = handleAt(cursor, selection);
-    if (handle === 'nw' || handle === 'se') return 'nwse-resize';
-    if (handle === 'ne' || handle === 'sw') return 'nesw-resize';
+    if (handle) return cursorForHandle(handle);
+    if (moveDrag) return 'grabbing';
+    if (tool === 'move') return pointInRect(cursor, selection) ? 'grab' : 'default';
     return pointInRect(cursor, selection) ? 'crosshair' : 'default';
-  }, [cursor, lassoPending, selection, selectionShape, tool]);
+  }, [cursor, lassoPending, moveDrag, selection, selectionShape, tool]);
 
   const eraseAt = (at: Point) => {
     if (!selection) return;
@@ -429,6 +465,11 @@ export function OverlayPage() {
       // A remembered region can be tiny or stale. With no markup yet, dragging
       // outside it should start a fresh selection instead of doing nothing.
       if (!annotations.length) beginSelection(p, event);
+      return;
+    }
+    if (tool === 'move') {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setMoveDrag({ start: p, initial: selection });
       return;
     }
     if (tool === 'text') {
@@ -503,14 +544,18 @@ export function OverlayPage() {
       setSelection(relativeRect(selectionDrag.start, p, viewport));
       return;
     }
+    if (moveDrag) {
+      const initial = moveDrag.initial;
+      setSelection({
+        x: clamp(initial.x + p.x - moveDrag.start.x, 0, Math.max(0, viewport.width - initial.width)),
+        y: clamp(initial.y + p.y - moveDrag.start.y, 0, Math.max(0, viewport.height - initial.height)),
+        width: initial.width,
+        height: initial.height
+      });
+      return;
+    }
     if (resize && selection) {
-      const initial = resize.initial;
-      const fixed = {
-        x: resize.handle.includes('w') ? initial.x + initial.width : initial.x,
-        y: resize.handle.includes('n') ? initial.y + initial.height : initial.y
-      };
-      const next = clampRect(normalizeRect(fixed, p), viewport);
-      if (next.width >= 16 && next.height >= 16) setSelection(next);
+      setSelection(resizeSelection(resize.handle, resize.initial, p, viewport));
       return;
     }
     if (erasing.current) {
@@ -550,7 +595,7 @@ export function OverlayPage() {
       } else {
         setSelection(bbox);
         setSelectionShape('lasso');
-        setTool('pen');
+        setTool('move');
         setPanel(null);
       }
       return;
@@ -562,9 +607,13 @@ export function OverlayPage() {
       else {
         setSelection(rect);
         setSelectionShape(selectionMode);
-        setTool('pen');
+        setTool('move');
         setPanel(null);
       }
+      return;
+    }
+    if (moveDrag) {
+      setMoveDrag(null);
       return;
     }
     if (resize) {
@@ -601,14 +650,14 @@ export function OverlayPage() {
 
   useEffect(() => {
     const onPointerUp = (event: PointerEvent) => {
-      if (selectionDrag || resize || annotationStart.current || erasing.current || lassoDrawing) {
+      if (selectionDrag || resize || moveDrag || annotationStart.current || erasing.current || lassoDrawing) {
         void finishPointerAt(event.clientX, event.clientY);
       }
     };
     window.addEventListener('pointerup', onPointerUp);
     return () => window.removeEventListener('pointerup', onPointerUp);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectionDrag, resize, draft, tool, selection, lassoDrawing, lassoPoints]);
+  }, [selectionDrag, resize, moveDrag, draft, tool, selection, lassoDrawing, lassoPoints]);
 
   const commit = (annotation: Annotation) => {
     setPast((value) => [...value, annotations].slice(-40));
@@ -820,6 +869,7 @@ export function OverlayPage() {
     setSelection(null);
     setSelectionDrag(null);
     setResize(null);
+    setMoveDrag(null);
     setLassoDrawing(false);
     setLassoPending(false);
     setLassoPoints([]);
@@ -835,6 +885,7 @@ export function OverlayPage() {
   const selectFull = () => {
     setSelection({ x: 0, y: 0, width: viewport.width, height: viewport.height });
     setSelectionShape('rect');
+    setTool('move');
     setLassoPoints([]);
     setLassoDrawing(false);
     setLassoPending(false);
@@ -886,7 +937,10 @@ export function OverlayPage() {
         } else if (lassoPending) {
           setLassoPending(false);
         } else if (panel) setPanel(null);
-        else if (selectionDrag) {
+        else if (moveDrag) {
+          setSelection(moveDrag.initial);
+          setMoveDrag(null);
+        } else if (selectionDrag) {
           setSelectionDrag(null);
           setSelection(null);
         } else if (draft) {
@@ -963,7 +1017,7 @@ export function OverlayPage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [annotations, draft, lassoPending, panel, past, future, submitting, textEditor, selection, tool, color, stroke, fontSize, viewport]);
+  }, [annotations, draft, lassoPending, moveDrag, panel, past, future, submitting, textEditor, selection, tool, color, stroke, fontSize, viewport]);
 
   if (error && !init) {
     return (
@@ -990,9 +1044,16 @@ export function OverlayPage() {
   const hasSelection = Boolean(selection && selection.width >= 8 && selection.height >= 8);
   const showInline = hasSelection && !selectionDrag && !lassoDrawing;
   const RAIL_W = 20;
-  const RAIL_H = 302;
+  const RAIL_H = 322;
+  const RAIL_GAP = 4;
   const BAR_W = 161;
   const BAR_H = 20;
+  const BAR_GAP = 4;
+  const SHAPE_W = 60;
+  const SHAPE_H = 20;
+  // The shape strip sits a full grab radius above the top edge so reaching for
+  // the north-west handle never lands on a shape button instead.
+  const SHAPE_GAP = 14;
   const selectionRight = selection ? selection.x + selection.width : 0;
   const selectionBottom = selection ? selection.y + selection.height : 0;
 
@@ -1003,29 +1064,35 @@ export function OverlayPage() {
   let shapeBarLeft = 12;
   let shapeBarTop = 12;
   if (selection) {
-    // Prefer touching the right edge; flip left when the display runs out.
-    railLeft = selectionRight;
-    if (railLeft + RAIL_W > viewport.width) railLeft = selection.x - RAIL_W;
-    if (railLeft < 0) railLeft = Math.max(0, selectionRight - RAIL_W);
+    // Prefer touching the right edge; flip left when the display runs out. The
+    // small gap keeps the middle-right resize handle clickable.
+    railLeft = selectionRight + RAIL_GAP;
+    if (railLeft + RAIL_W > viewport.width) railLeft = selection.x - RAIL_W - RAIL_GAP;
+    if (railLeft < 0) railLeft = Math.max(0, selectionRight - RAIL_W - RAIL_GAP);
 
     // Prefer touching the top edge; settle upward when the selection is low.
     railTop = selection.y;
     if (railTop + RAIL_H > viewport.height) railTop = Math.max(0, selectionBottom - RAIL_H);
 
-    // Prefer touching the bottom edge, then the top edge, then inside.
-    actionTop = selectionBottom;
-    if (actionTop + BAR_H > viewport.height) actionTop = selection.y - BAR_H;
-    if (actionTop < 0) actionTop = Math.max(0, selectionBottom - BAR_H);
+    // Prefer touching the bottom edge, then the top edge, then inside. The gap
+    // keeps the middle-bottom resize handle clickable.
+    actionTop = selectionBottom + BAR_GAP;
+    if (actionTop + BAR_H > viewport.height) actionTop = selection.y - BAR_H - BAR_GAP;
+    if (actionTop < 0) actionTop = Math.max(0, selectionBottom - BAR_H - BAR_GAP);
 
     // Right-align under the selection; keep it on screen.
     actionLeft = selectionRight - BAR_W;
     if (actionLeft < 0) actionLeft = 0;
     if (actionLeft + BAR_W > viewport.width) actionLeft = viewport.width - BAR_W;
 
-    // Keep the selection shape switcher attached above the selection so it
-    // stays visible after a rectangle is drawn. Fall inside near the top edge.
-    shapeBarLeft = clamp(selection.x, 8, Math.max(8, viewport.width - 380));
-    shapeBarTop = selection.y >= 52 ? selection.y - 44 : selection.y + 8;
+    // The shape switcher uses the same square, icon-only strip as the rail and
+    // the action bar. Keep its left edge on the selection's left edge so the
+    // strip still reads as attached to the box.
+    shapeBarLeft = clamp(selection.x, 0, Math.max(0, viewport.width - SHAPE_W));
+    shapeBarTop =
+      selection.y >= SHAPE_H + SHAPE_GAP + 8
+        ? selection.y - SHAPE_H - SHAPE_GAP
+        : Math.min(selection.y + SHAPE_GAP, Math.max(0, viewport.height - SHAPE_H));
   }
 
   const panelLeft = clamp(
@@ -1044,8 +1111,10 @@ export function OverlayPage() {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerCancel={() => {
+          if (moveDrag) setSelection(moveDrag.initial);
           setSelectionDrag(null);
           setResize(null);
+          setMoveDrag(null);
           setLassoDrawing(false);
           setDraft(null);
           annotationStart.current = null;
@@ -1077,7 +1146,6 @@ export function OverlayPage() {
           role="group"
           aria-label="Selection shape"
         >
-          <span className="selection-shape-label">Select</span>
           {SELECTION_MODES.map((mode) => {
             const Icon = mode.icon;
             const activeShape = lassoPending ? 'lasso' : selection ? selectionShape : selectionMode;
@@ -1101,16 +1169,10 @@ export function OverlayPage() {
                 aria-pressed={active}
                 onClick={() => chooseSelectionShape(mode.id)}
               >
-                <Icon size={14} />
-                <span>{mode.short}</span>
+                <Icon size={13} />
               </button>
             );
           })}
-          {hasSelection && selection ? (
-            <span className="selection-shape-size">
-              {Math.round(selection.width * scaleX)} × {Math.round(selection.height * scaleY)}
-            </span>
-          ) : null}
         </div>
       ) : null}
 
@@ -1121,9 +1183,13 @@ export function OverlayPage() {
             <span className="hint-dot" />
             <span><kbd>Esc</kbd> keep the current shape</span>
           </>
-        ) : hasSelection ? (
+        ) : hasSelection && selection ? (
           <>
-            <span>Mark up directly</span>
+            <span className="hint-size">
+              {Math.round(selection.width * scaleX)} × {Math.round(selection.height * scaleY)}
+            </span>
+            <span className="hint-dot" />
+            <span>Drag inside to move · pick a tool to draw</span>
             <span className="hint-dot" />
             <span><kbd>Enter</kbd> full editor</span>
             <span className="hint-dot" />

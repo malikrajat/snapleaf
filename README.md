@@ -88,6 +88,22 @@ npm run dist
 The NSIS installer is written to `dist/Snapleaf-<version>-Setup.exe`. An unpacked build is
 available at `dist/win-unpacked/Snapleaf.exe`.
 
+## Read an executable
+
+A read-only REA helper is available for inspecting PE files without executing them:
+
+```powershell
+npm run read:exe -- "C:\Path\To\App.exe"
+npm run read:exe:deep -- "C:\Path\To\App.exe" --out analysis/app-inspect.json
+```
+
+`read:exe` prints provider-neutral artifact facts as JSON. `read:exe:deep` adds a Ghidra
+overview and uses the bundled Ghidra folder in `tools/`. Both commands require the REA CLI:
+
+```powershell
+npm install --global rea-agents
+```
+
 ## Default shortcuts
 
 | Action | Shortcut |

@@ -23,8 +23,8 @@ $env:SNAPLEAF_UPDATE_FEED = 'http://127.0.0.1:8123/latest.json'
 
 ```json
 {
-  "version": "0.2.0",
-  "downloadUrl": "https://rajatmalik.dev/snapleaf/Snapleaf-0.2.0-Setup.exe",
+  "version": "0.2.1",
+  "downloadUrl": "https://rajatmalik.dev/snapleaf/Snapleaf-0.2.1-Setup.exe",
   "releaseUrl": "https://rajatmalik.dev/snapleaf/",
   "notes": "Numbered steps, a per-object eraser, and ellipse/lasso capture.",
   "publishedAt": "2026-12-01T10:00:00Z"

@@ -179,7 +179,7 @@ export function registerIpc(deps: IpcDependencies): void {
     if (image.isEmpty()) throw new Error('Screenshot could not be decoded');
     return image.toDataURL();
   });
-  handle(IPC.editorSave, (_event, request: SaveRequest) => {
+  handle(IPC.editorSave, (event, request: SaveRequest) => {
     if (!request || typeof request !== 'object') throw new Error('Invalid save request');
     validateDataUrl(request.dataUrl);
     if (request.format !== 'png' && request.format !== 'jpeg') throw new Error('Invalid image format');
@@ -187,7 +187,8 @@ export function registerIpc(deps: IpcDependencies): void {
       request.dataUrl,
       request.format,
       Math.min(100, Math.max(30, Number(request.quality) || 90)),
-      request.suggestedName
+      request.suggestedName,
+      BrowserWindow.fromWebContents(event.sender)
     );
   });
   handle(IPC.editorCopy, async (_event, dataUrl: unknown) => {
