@@ -18,6 +18,10 @@ import { registerPrivilegedSchemes, registerSnapleafProtocol } from './protocol'
 import { log } from './logger';
 
 app.setName('Snapleaf');
+// Keep dev/preview shortcuts from claiming the installed app's identity. A stray
+// Start-menu shortcut with the same AppUserModelID makes Windows show "Electron"
+// and the default icon instead of Snapleaf.
+const appUserModelId = app.isPackaged ? 'tools.snapleaf.app' : 'tools.snapleaf.app.dev';
 registerPrivilegedSchemes();
 
 const gotLock = app.requestSingleInstanceLock();
@@ -99,7 +103,7 @@ if (!gotLock) {
 
   async function bootstrap(): Promise<void> {
     Menu.setApplicationMenu(null);
-    app.setAppUserModelId('tools.snapleaf.app');
+    app.setAppUserModelId(appUserModelId);
     registerSnapleafProtocol();
     session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
 
@@ -164,7 +168,7 @@ if (!gotLock) {
       broadcast
     });
 
-    const trayManager = new TrayManager(iconPath, windowManager, settingsStore, {
+    const trayManager = new TrayManager(windowIconPath, windowManager, settingsStore, {
       startRegion: () => void captureService.startRegion(),
       startFullscreen: (action) => void captureService.startFullscreen(action),
       openGallery: () => windowManager.showGallery(),

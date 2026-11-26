@@ -75,7 +75,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Snapleaf",
-      "runAfterFinish": true
+      "runAfterFinish": true,
+      "include": "installer.nsh"
     },
     "extraResources": [
       {

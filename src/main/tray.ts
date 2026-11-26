@@ -25,7 +25,10 @@ export class TrayManager {
 
   create(): void {
     try {
-      const source = nativeImage.createFromPath(this.iconPath);
+      let source = nativeImage.createFromPath(this.iconPath);
+      if (source.isEmpty() && this.iconPath.toLowerCase().endsWith('.ico')) {
+        source = nativeImage.createFromPath(this.iconPath.replace(/\.ico$/i, '.png'));
+      }
       const image = source.isEmpty() ? nativeImage.createEmpty() : source.resize({ width: 20, height: 20 });
       this.tray = new Tray(image);
       this.tray.setToolTip('Snapleaf');

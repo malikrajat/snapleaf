@@ -88,6 +88,12 @@ npm run dist
 The NSIS installer is written to `dist/Snapleaf-<version>-Setup.exe`. An unpacked build is
 available at `dist/win-unpacked/Snapleaf.exe`.
 
+If Start/search or taskbar pinning still shows **Electron** with the default icon, a stale
+Start-menu shortcut is claiming Snapleaf's AppUserModelID. Remove any old `Electron.lnk` or
+duplicate `Snapleaf.lnk` from `%APPDATA%\Microsoft\Windows\Start Menu\Programs`, then restart
+Explorer or sign out. New installers remove the stale same-scope shortcut automatically, and
+dev builds now use a separate AppUserModelID so they cannot collide with the installed app.
+
 ## Read an executable
 
 A read-only REA helper is available for inspecting PE files without executing them:
